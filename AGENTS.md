@@ -1,0 +1,175 @@
+# AGENTS.md — WPF Excel Mail Sender
+
+이 저장소의 모든 LLM/개발자는 본 문서를 최우선 기준으로 삼는다.
+
+---
+
+## 0. 최상위 원칙
+
+1. 작은 프로젝트 유지 (과한 추상화/레이어링 금지)
+2. 발송 중 입력 실패 = 0 목표
+3. 성공 기준 = SMTP 서버 수락(accepted)
+4. 재시도 없음
+5. 배치 내 이메일 중복 허용 안 함 (검증 단계에서 중단)
+6. Excel Interop만 사용
+7. 시트는 반드시 1개
+8. 모든 검증 완료 후에만 발송 가능
+9. 발송 중 UI 잠금 필수
+
+---
+
+## 1. 기술 스택
+
+- UI: WPF (.NET 8)
+- MVVM: CommunityToolkit.Mvvm
+- SMTP: MailKit
+- Excel: Interop/COM
+- HTML Preview: WebView2
+- Config: JSON
+- Output: File (Log + CSV)
+
+---
+
+## 2. 실행 단계 (게이트 방식)
+
+1) 엑셀 스캔
+2) 엑셀 검증
+3) SMTP 검증 + 테스트 메일
+4) 템플릿 검증
+5) 발송
+
+→ 모든 단계 통과 전 발송 버튼 비활성
+
+---
+
+## 3. 엑셀 검증 규칙
+
+### 파일
+정규식:
+^(?<date>\d{8}).*\.xlsx$
+
+date=YYYYMMDD
+month=YYYYMM
+
+같은 month 2개 이상 → EX001
+
+### 월 연속성
+선택된 YYYYMM은 반드시 연속 → 아니면 EX002
+
+### 파일 열기
+- Excel Interop로 전량 오픈
+- 비밀번호 필수 (모든 파일 동일한 고정 비밀번호)
+- 실패 시 EX003
+
+### 시트
+- 반드시 1개
+- 아니면 EX010(파일명 포함)
+
+### 이메일
+- 컬럼 존재 필수
+- 앞뒤 공백 제거 후 검증
+- 국제 표준(RFC 5322) 기준 형식 검증
+- 빈값/형식 오류 → 실패
+- 중복 → EX020
+
+---
+
+## 4. 회차
+
+docs/ROUND_RULES.md 그대로 구현 (이메일 기준)
+
+---
+
+## 5. SMTP 검증
+
+### 연결 확인
+연결+인증만 검사
+
+### 테스트 메일
+
+- 테스트 수신자 입력
+- 실제 1번 대상 데이터 사용
+- TO만 변경
+- 템플릿/첨부 동일
+- FROM/REPLY 동일
+- 배치 소비 금지
+
+---
+
+## 6. 템플릿 검증
+
+- {round} 파싱 확인
+- {컬럼} 존재 확인 (대소문자 구분 없이 매칭)
+- 첨부 10MB 이하
+
+누락 시 오류
+
+---
+
+## 7. UI 규칙
+
+### 활성 조건
+
+| 단계 | 발송 버튼 |
+|------|-----------|
+| 엑셀 미검증 | 비활성 |
+| SMTP 미검증 | 비활성 |
+| 템플릿 미검증 | 비활성 |
+| 전부 통과 | 활성 |
+
+### 발송 중
+
+- 모든 입력 잠금
+- 중지/일시정지만 활성
+
+### 검증 버튼
+
+- 검증 버튼으로 엑셀/SMTP/템플릿을 모두 확인
+- 모든 검증 통과 전 발송 불가
+
+---
+
+## 8. 산출물
+
+logs/app-YYYYMMDD.log
+
+output/results-<Batch>.csv
+output/failures-<Batch>.csv
+
+Batch = 실행시간 (YYYYMMDD-HHmmss)
+
+### 결과 CSV 스키마
+
+results-<Batch>.csv
+- Email
+- Round
+- Status (SENT/FAILED)
+- ErrorCode (없으면 빈값)
+- ErrorMessage (없으면 빈값)
+- Timestamp (YYYY-MM-DD HH:mm:ss)
+
+failures-<Batch>.csv
+- Email (실패한 이메일 식별용)
+- Round
+- ErrorCode
+- ErrorMessage
+- Timestamp (YYYY-MM-DD HH:mm:ss)
+
+---
+
+## 9. Excel Interop 규칙
+
+- STA
+- Visible=false
+- UsedRange 일괄 로드
+- COM 해제 필수
+
+---
+
+## 10. 금지
+
+- 병렬 발송
+- 재시도
+- 시트 다중
+- 토큰 무시
+- 자동 중복 제거
