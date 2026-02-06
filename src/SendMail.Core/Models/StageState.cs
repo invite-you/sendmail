@@ -7,11 +7,10 @@ public sealed class StageState
     public StageStatus Template { get; set; } = StageStatus.Pending;
     public StageStatus TestMail { get; set; } = StageStatus.Pending;
 
-    public bool CanValidateTemplate => Smtp == StageStatus.Success;
-    public bool CanSendTestMail => Template == StageStatus.Success;
+    public bool CanValidateTemplate => Excel == StageStatus.Success && Smtp == StageStatus.Success;
+    public bool CanSendTestMail => Excel == StageStatus.Success && Smtp == StageStatus.Success && Template == StageStatus.Success;
     public bool CanSend => Excel == StageStatus.Success
         && Smtp == StageStatus.Success
         && Template == StageStatus.Success
         && TestMail == StageStatus.Success;
 }
-
