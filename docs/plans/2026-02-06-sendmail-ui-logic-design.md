@@ -46,7 +46,8 @@ Top to bottom:
 - Password input (used only when file is password-protected).
 - Buttons: `Load Excel`, `Validate Excel`.
 - Email grid (select one for preview).
-- Summary bar above grid: `선택 월: YYYYMM–YYYYMM, 파일 n개`.
+- Summary bar above grid: `선택 월: YYYYMM–YYYYMM, 파일 n개, 최신 파일 1개, 대상자(이메일) n명`.
+- 발송 대상 이메일은 최신 월(YYYYMM Max) 파일의 이메일 컬럼 기준으로 결정한다.
 
 ### SMTP Group
 - Host/Port/User/Pass/SSL settings (loaded from config; in-form edits are session-only).

@@ -6,11 +6,15 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SendMail.Core.Config;
 using SendMail.Core.Models;
+using SendMail.Core.Validation;
+using SendMail.Services;
 
 namespace SendMail.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
+    private readonly ExcelInteropReader excelReader = new();
+
     public MainViewModel()
     {
         Stage = new StageState();
@@ -68,6 +72,14 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string mailBodyPath = "config/body.html";
     [ObservableProperty] private string mailAttachmentsText = string.Empty;
     [ObservableProperty] private string testRecipient = "test@example.com";
+
+    // Excel load results (scan + latest email extraction)
+    public ObservableCollection<string> ExcelTargetFiles { get; } = new();
+
+    [ObservableProperty] private string excelMonthRangeText = string.Empty;
+    [ObservableProperty] private string excelLatestFileName = string.Empty;
+    [ObservableProperty] private int excelTargetFileCount;
+    [ObservableProperty] private string excelRecipientCountText = "-";
 
     [ObservableProperty]
     private string? selectedEmail;
@@ -202,8 +214,7 @@ public partial class MainViewModel : ObservableObject
 
     private Task LoadExcelAsync()
     {
-        LogInfo("LoadExcel: not implemented yet.");
-        return Task.CompletedTask;
+        return LoadExcelInternalAsync();
     }
 
     private Task ValidateExcelAsync()
@@ -275,5 +286,56 @@ public partial class MainViewModel : ObservableObject
         SendCommand.NotifyCanExecuteChanged();
         PauseCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
+    }
+
+    private async Task LoadExcelInternalAsync()
+    {
+        ExcelTargetFiles.Clear();
+        ExcelMonthRangeText = string.Empty;
+        ExcelLatestFileName = string.Empty;
+        ExcelTargetFileCount = 0;
+        ExcelRecipientCountText = "-";
+
+        if (string.IsNullOrWhiteSpace(ExcelFolderPath) || !Directory.Exists(ExcelFolderPath))
+        {
+            LogError("Excel folder path is empty or does not exist.");
+            return;
+        }
+
+        var candidates = ExcelBatchScanner.EnumerateCandidateFiles(ExcelFolderPath);
+        var (result, error) = ExcelBatchScanner.ValidateMonthlyContinuity(candidates);
+
+        if (error is not null)
+        {
+            LogError($"[{error.Code}] {error.Message}");
+            return;
+        }
+
+        var scan = result!;
+        ExcelMonthRangeText = $"{scan.MinMonth}-{scan.MaxMonth}";
+        ExcelTargetFileCount = scan.FileCount;
+
+        foreach (var file in scan.Files)
+        {
+            ExcelTargetFiles.Add(file.FileName);
+        }
+
+        var latest = scan.Files[^1];
+        ExcelLatestFileName = latest.FileName;
+
+        try
+        {
+            // Only the latest file determines the send-recipient set.
+            var emailColumnValues = await StaThreadRunner.RunAsync(() =>
+                excelReader.ReadColumnValues(latest.FullPath, ExcelPassword, ExcelEmailColumn));
+            var recipients = RecipientCalculator.FromEmailColumnValues(emailColumnValues);
+            ExcelRecipientCountText = recipients.Count.ToString();
+
+            LogInfo($"Excel loaded. range={ExcelMonthRangeText} files={ExcelTargetFileCount} latest={ExcelLatestFileName} recipients={ExcelRecipientCountText}");
+        }
+        catch (Exception ex)
+        {
+            LogError($"Failed to extract recipients from latest Excel: {ex.Message}");
+        }
     }
 }
