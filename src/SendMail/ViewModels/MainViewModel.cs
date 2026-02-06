@@ -1,6 +1,8 @@
 using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -15,9 +17,12 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly ExcelInteropReader excelReader = new();
 
+    private IReadOnlyList<string> latestValidRecipients = Array.Empty<string>();
+
     public MainViewModel()
     {
         Stage = new StageState();
+        Stage.PropertyChanged += OnStagePropertyChanged;
 
         ReloadConfigCommand = new AsyncRelayCommand(ReloadConfigAsync, CanReloadConfig);
         LoadExcelCommand = new AsyncRelayCommand(LoadExcelAsync, CanLoadExcel);
@@ -219,8 +224,7 @@ public partial class MainViewModel : ObservableObject
 
     private Task ValidateExcelAsync()
     {
-        LogInfo("ValidateExcel: not implemented yet.");
-        return Task.CompletedTask;
+        return ValidateExcelInternalAsync();
     }
 
     private Task TestSmtpAsync()
@@ -288,8 +292,15 @@ public partial class MainViewModel : ObservableObject
         StopCommand.NotifyCanExecuteChanged();
     }
 
+    private void OnStagePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        NotifyCommandCanExecuteChanged();
+    }
+
     private async Task LoadExcelInternalAsync()
     {
+        ResetAfterExcelInputsChanged();
+
         ExcelTargetFiles.Clear();
         ExcelMonthRangeText = string.Empty;
         ExcelLatestFileName = string.Empty;
@@ -329,6 +340,7 @@ public partial class MainViewModel : ObservableObject
             var emailColumnValues = await StaThreadRunner.RunAsync(() =>
                 excelReader.ReadColumnValues(latest.FullPath, ExcelPassword, ExcelEmailColumn));
             var recipients = RecipientCalculator.FromEmailColumnValues(emailColumnValues);
+            latestValidRecipients = recipients;
             ExcelRecipientCountText = recipients.Count.ToString();
 
             LogInfo($"Excel loaded. range={ExcelMonthRangeText} files={ExcelTargetFileCount} latest={ExcelLatestFileName} recipients={ExcelRecipientCountText}");
@@ -337,5 +349,105 @@ public partial class MainViewModel : ObservableObject
         {
             LogError($"Failed to extract recipients from latest Excel: {ex.Message}");
         }
+    }
+
+    private async Task ValidateExcelInternalAsync()
+    {
+        // Keep UI summary in sync even if user skips "Load Excel".
+        await LoadExcelInternalAsync();
+
+        Stage.Excel = StageStatus.Pending;
+
+        if (string.IsNullOrWhiteSpace(ExcelFolderPath) || !Directory.Exists(ExcelFolderPath))
+        {
+            LogError("Excel folder path is empty or does not exist.");
+            Stage.Excel = StageStatus.Fail;
+            return;
+        }
+
+        var candidates = ExcelBatchScanner.EnumerateCandidateFiles(ExcelFolderPath);
+        var (result, error) = ExcelBatchScanner.ValidateMonthlyContinuity(candidates);
+
+        if (error is not null)
+        {
+            LogError($"[{error.Code}] {error.Message}");
+            Stage.Excel = StageStatus.Fail;
+            return;
+        }
+
+        var scan = result!;
+        var latestFile = scan.Files[^1];
+        IReadOnlyList<ExcelInteropReader.CellString> latestCells = Array.Empty<ExcelInteropReader.CellString>();
+
+        var invalidTotal = 0;
+        const int invalidLogLimit = 50;
+
+        foreach (var file in scan.Files)
+        {
+            IReadOnlyList<ExcelInteropReader.CellString> cells;
+
+            try
+            {
+                cells = await StaThreadRunner.RunAsync(() =>
+                    excelReader.ReadColumnCellStrings(file.FullPath, ExcelPassword, ExcelEmailColumn));
+            }
+            catch (ExcelInteropException ex)
+            {
+                LogError($"[{ex.Code}] {ex.Message}");
+                Stage.Excel = StageStatus.Fail;
+                return;
+            }
+            catch (Exception ex)
+            {
+                LogError($"Excel open/read failed: {file.FileName}: {ex.Message}");
+                Stage.Excel = StageStatus.Fail;
+                return;
+            }
+
+            if (ReferenceEquals(file, latestFile) || string.Equals(file.FullPath, latestFile.FullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                latestCells = cells;
+            }
+
+            foreach (var cell in cells)
+            {
+                if (!EmailValidator.IsValidRfc5322AddrSpec(cell.Value))
+                {
+                    invalidTotal++;
+                    if (invalidTotal <= invalidLogLimit)
+                    {
+                        LogError($"Invalid email (RFC 5322): file={file.FileName} row={cell.RowNumber} value='{cell.Value}'");
+                    }
+                }
+            }
+        }
+
+        if (invalidTotal > 0)
+        {
+            if (invalidTotal > invalidLogLimit)
+            {
+                LogError($"Invalid email(s): {invalidTotal - invalidLogLimit} more not shown.");
+            }
+
+            Stage.Excel = StageStatus.Fail;
+            return;
+        }
+
+        // Refresh recipient count from the latest file using the same RFC validator.
+        var latestValues = latestCells.Select(c => c.Value);
+        latestValidRecipients = RecipientCalculator.FromEmailColumnValues(latestValues);
+        ExcelRecipientCountText = latestValidRecipients.Count.ToString();
+
+        Stage.Excel = StageStatus.Success;
+        LogInfo($"Excel validated. recipients={ExcelRecipientCountText}");
+    }
+
+    private void ResetAfterExcelInputsChanged()
+    {
+        // Any change to Excel inputs invalidates downstream stages.
+        Stage.Excel = StageStatus.Pending;
+        Stage.Smtp = StageStatus.Pending;
+        Stage.Template = StageStatus.Pending;
+        Stage.TestMail = StageStatus.Pending;
     }
 }
