@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SendMail.Core.Config;
 using SendMail.Core.Models;
+using SendMail.Core.Smtp;
 using SendMail.Core.Validation;
 using SendMail.Services;
 
@@ -16,6 +17,7 @@ namespace SendMail.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly ExcelInteropReader excelReader = new();
+    private readonly SmtpService smtpService = new();
 
     private IReadOnlyList<string> latestValidRecipients = Array.Empty<string>();
 
@@ -229,8 +231,7 @@ public partial class MainViewModel : ObservableObject
 
     private Task TestSmtpAsync()
     {
-        LogInfo("TestSmtp(connect/auth): not implemented yet.");
-        return Task.CompletedTask;
+        return TestSmtpInternalAsync();
     }
 
     private Task ValidateTemplateAsync()
@@ -449,5 +450,33 @@ public partial class MainViewModel : ObservableObject
         Stage.Smtp = StageStatus.Pending;
         Stage.Template = StageStatus.Pending;
         Stage.TestMail = StageStatus.Pending;
+    }
+
+    private async Task TestSmtpInternalAsync()
+    {
+        Stage.Smtp = StageStatus.Pending;
+        Stage.Template = StageStatus.Pending;
+        Stage.TestMail = StageStatus.Pending;
+
+        try
+        {
+            var securityMode = SmtpSecurityParser.Parse(SmtpSecurity);
+
+            await smtpService.VerifyConnectAndAuthAsync(
+                host: SmtpHost,
+                port: SmtpPort,
+                security: securityMode,
+                username: SmtpSender,
+                password: SmtpPassword,
+                timeoutSeconds: SmtpTimeoutSeconds);
+
+            Stage.Smtp = StageStatus.Success;
+            LogInfo("SMTP verified (connect+auth).");
+        }
+        catch (Exception ex)
+        {
+            Stage.Smtp = StageStatus.Fail;
+            LogError($"SMTP verify failed: {ex.Message}");
+        }
     }
 }
