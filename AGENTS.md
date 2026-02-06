@@ -53,6 +53,7 @@ date=YYYYMMDD
 month=YYYYMM
 
 같은 month 2개 이상 → EX001
+파일명 패턴 불일치 또는 날짜(YYYYMMDD) 오류 → EX004
 
 ### 월 연속성
 선택된 YYYYMM은 반드시 연속 → 아니면 EX002
