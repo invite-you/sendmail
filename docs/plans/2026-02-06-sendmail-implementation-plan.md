@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement the WPF app structure and validation flow defined in the UI/logic design, including staged validation, logging, and template/test-mail separation.
+**Goal:** Implement the WPF Excel mail sender per `AGENTS.md` and the design doc, with staged validation, strict monthly continuity, and separate template validation vs test-mail sending.
 
-**Architecture:** Lean MVVM with a single `MainViewModel` orchestrating four services (`ExcelService`, `SmtpService`, `TemplateService`, `SendService`). Stage states drive UI gating and enablement.
+**Architecture:** Lean MVVM (`MainViewModel`) + small services. Keep pure logic in `SendMail.Core` so it can be unit-tested without WPF/Excel.
 
 **Tech Stack:** .NET 8 WPF, CommunityToolkit.Mvvm, MailKit, Excel Interop (COM), WebView2.
 
@@ -12,37 +12,37 @@
 
 ## Pre-flight
 
-- Confirm design doc: `docs/plans/2026-02-06-sendmail-ui-logic-design.md`.
-- Confirm policy docs updated: `AGENTS.md`, `docs/EXCEL_FORMAT.md`, `docs/MAIL_TEMPLATE.md`, `docs/RUNBOOK.md`, `docs/QA_CHECKLIST.md`.
+- Review spec: `AGENTS.md`
+- Review docs: `docs/EXCEL_FORMAT.md`, `docs/MAIL_TEMPLATE.md`, `docs/ROUND_RULES.md`, `docs/RUNBOOK.md`, `docs/QA_CHECKLIST.md`
+- Review design: `docs/plans/2026-02-06-sendmail-ui-logic-design.md`
+
+Environment notes:
+- Excel Interop requires Windows + Excel installed and an STA thread.
+- WebView2 requires WebView2 runtime on Windows.
 
 ---
 
-### Task 1: Create solution skeleton and WPF project
+### Task 1: Solution and WPF Project Skeleton
 
 **Files:**
 - Create: `SendMail.sln`
-- Create: `src/SendMail/SendMail.csproj`
-- Create: `src/SendMail/App.xaml`
-- Create: `src/SendMail/App.xaml.cs`
-- Create: `src/SendMail/MainWindow.xaml`
-- Create: `src/SendMail/MainWindow.xaml.cs`
+- Create: `src/SendMail/SendMail.csproj` (net8.0-windows, UseWPF)
+- Create: `src/SendMail/App.xaml`, `src/SendMail/App.xaml.cs`
+- Create: `src/SendMail/MainWindow.xaml`, `src/SendMail/MainWindow.xaml.cs`
 
-**Step 1: Write the failing test**
-
-Not applicable (project scaffolding).
-
-**Step 2: Create minimal project**
-
-- Create solution and WPF project targeting .NET 8.
-- Add references: CommunityToolkit.Mvvm, MailKit, Microsoft.Web.WebView2, Microsoft.Office.Interop.Excel.
-
-**Step 3: Build**
+**Steps:**
+1. Create the solution and WPF project.
+2. Add NuGet packages to `src/SendMail/SendMail.csproj`:
+   - CommunityToolkit.Mvvm
+   - MailKit
+   - Microsoft.Web.WebView2
+   - Microsoft.Office.Interop.Excel
+3. Build.
 
 Run: `dotnet build -c Release`
-Expected: Build succeeds.
+Expected: success.
 
-**Step 4: Commit**
-
+Commit:
 ```bash
 git add SendMail.sln src/SendMail
 
@@ -51,310 +51,208 @@ git commit -m "chore: add WPF project skeleton"
 
 ---
 
-### Task 2: Define core models and stage state
+### Task 2: Core Library + Tests (Models and Gating)
 
 **Files:**
-- Create: `src/SendMail/Models/StageState.cs`
-- Create: `src/SendMail/Models/LogEntry.cs`
-- Create: `src/SendMail/Models/ExcelRow.cs`
-- Create: `src/SendMail/Models/EmailGroup.cs`
+- Create: `src/SendMail.Core/SendMail.Core.csproj`
+- Create: `src/SendMail.Core/Models/StageState.cs`
+- Create: `src/SendMail.Core/Models/StageStatus.cs`
+- Create: `src/SendMail.Core/Models/LogEntry.cs`
+- Create: `src/SendMail.Core/Models/LogLevel.cs`
+- Create: `src/SendMail.Core/Models/ExcelRow.cs`
+- Create: `src/SendMail.Core/Models/EmailGroup.cs`
+- Create: `tests/SendMail.Core.Tests/SendMail.Core.Tests.csproj`
 
-**Step 1: Write failing test**
-
-Create a small test harness project (`src/SendMail.Tests`) for model behavior.
-
-```csharp
-// pseudo
-Assert.Equal(StageStatus.Pending, new StageState().Excel);
-```
-
-**Step 2: Run test to fail**
-
-Run: `dotnet test`
-Expected: FAIL (types not defined).
-
-**Step 3: Implement minimal models**
-
-- `StageState`: Excel/SMTP/Template/TestMail status enum.
-- `LogEntry`: Time/Level/Message.
-- `ExcelRow`: Dictionary-like row data + Email.
-- `EmailGroup`: Email + list of rows.
-
-**Step 4: Run tests**
+**Steps:**
+1. Write tests asserting default stage states are Pending and gating properties behave.
+2. Implement minimal models.
+3. Run tests.
 
 Run: `dotnet test`
 Expected: PASS.
 
-**Step 5: Commit**
-
+Commit:
 ```bash
-git add src/SendMail/Models src/SendMail.Tests
+git add src/SendMail.Core tests/SendMail.Core.Tests
 
 git commit -m "feat: add core models and stage state"
 ```
 
 ---
 
-### Task 3: MainViewModel with staged commands
+### Task 3: MainViewModel and UI Wiring (Staged Buttons)
 
 **Files:**
 - Create: `src/SendMail/ViewModels/MainViewModel.cs`
-- Modify: `src/SendMail/App.xaml`
 - Modify: `src/SendMail/MainWindow.xaml`
+- Modify: `src/SendMail/MainWindow.xaml.cs`
 
-**Step 1: Write failing test**
+**Spec requirements covered:**
+- Stage gating:
+  - Template validation enabled after SMTP success
+  - Test mail enabled after template validation success
+  - Send enabled after all success
+- Sending locks input (later we will disable the input fields, not just buttons).
 
-Test initial state: buttons disabled when stages are Pending.
+**Steps:**
+1. Implement `MainViewModel` with `AsyncRelayCommand` for each stage action.
+2. Ensure `CanExecute` reflects `AGENTS.md` gating.
+3. Bind minimal UI to commands and show logs grid.
 
-**Step 2: Run tests to fail**
+Build: `dotnet build -c Release`
 
-Run: `dotnet test`
-Expected: FAIL (MainViewModel missing).
-
-**Step 3: Implement minimal ViewModel**
-
-- Observable properties for stage status, log list, selected email.
-- Commands: LoadExcel, ValidateExcel, TestSmtp, ValidateTemplate, SendTestMail, Preview, Send, Pause, Stop.
-- `CanExecute` gating:
-  - ValidateTemplate requires SMTP success.
-  - SendTestMail requires Template success.
-  - Send requires all stage success.
-
-**Step 4: Run tests**
-
-Run: `dotnet test`
-Expected: PASS.
-
-**Step 5: Commit**
-
+Commit:
 ```bash
-git add src/SendMail/ViewModels src/SendMail/MainWindow.xaml src/SendMail/App.xaml
+git add src/SendMail/ViewModels/MainViewModel.cs src/SendMail/MainWindow.xaml src/SendMail/MainWindow.xaml.cs
 
 git commit -m "feat: add main view model and staged commands"
 ```
 
 ---
 
-### Task 4: ExcelService file scan + validation
+### Task 4: Config Loading (Session-Only Editing)
+
+**Goal:** Load values from `config/appsettings.json` (user-edited) and display in UI. UI edits do not persist unless we explicitly add a save action.
 
 **Files:**
-- Create: `src/SendMail/Services/ExcelService.cs`
+- Create: `src/SendMail.Core/Config/AppConfig.cs`
+- Create: `src/SendMail.Core/Config/ConfigLoader.cs`
 - Modify: `src/SendMail/ViewModels/MainViewModel.cs`
-- Modify: `src/SendMail/Models/ExcelRow.cs`
+- Modify: `src/SendMail/MainWindow.xaml`
 
-**Step 1: Write failing test**
+**Steps:**
+1. Create config POCOs matching `config/appsettings.sample.json`.
+2. Implement JSON load with good error messages into log.
+3. Bind config values to UI fields.
 
-Create tests for:
-- EX001 month duplication
-- EX002 month non-continuity
-- Email format error logs text
+Tests:
+- Unit-test JSON load/parsing in `tests/SendMail.Core.Tests`.
 
-**Step 2: Run tests to fail**
-
-Run: `dotnet test`
-Expected: FAIL.
-
-**Step 3: Implement ExcelService**
-
-- Scan folder for `.xlsx`.
-- Parse filenames with `^(?<date>\d{8}).*\.xlsx$`.
-- Enforce one file per YYYYMM.
-- Enforce continuous YYYYMM.
-- Open all files with Excel Interop.
-- Single sheet required.
-- Extract UsedRange into rows; email column required.
-- RFC 5322 validation; invalid text logs to `LogEntry`.
-
-**Step 4: Run tests**
-
-Run: `dotnet test`
-Expected: PASS.
-
-**Step 5: Commit**
-
+Commit:
 ```bash
-git add src/SendMail/Services/ExcelService.cs src/SendMail/ViewModels/MainViewModel.cs src/SendMail/Models/ExcelRow.cs src/SendMail.Tests
+git add src/SendMail.Core/Config tests/SendMail.Core.Tests src/SendMail/ViewModels/MainViewModel.cs src/SendMail/MainWindow.xaml
 
-git commit -m "feat: add excel scanning and validation"
+git commit -m "feat: load config for smtp/template/excel"
 ```
 
 ---
 
-### Task 5: SMTP connect/auth verification
+### Task 5: Excel Scan and Validation
+
+**Files:**
+- Create: `src/SendMail.Core/Validation/ExcelBatchScanner.cs` (filename scan)
+- Create: `src/SendMail/Services/ExcelInteropReader.cs` (COM)
+- Create: `src/SendMail/Services/ExcelService.cs` (orchestrates scan + interop + validation)
+- Modify: `src/SendMail/ViewModels/MainViewModel.cs`
+
+**Rules:**
+- Regex: `^(?<date>\d{8}).*\.xlsx$`
+- One file per YYYYMM -> EX001
+- Continuous YYYYMM -> EX002
+- Open all files via Interop; failure -> EX003
+- Exactly one sheet -> EX010 (include filename)
+- Email column required; trim; RFC 5322; blanks skipped; invalid fails and logs invalid text
+- Duplicate emails allowed; merge rows
+
+**Key engineering constraint:**
+- Interop must run on STA. Do not run Interop work on `Task.Run` threadpool (MTA). Use a dedicated STA thread or marshal to UI thread.
+
+Tests:
+- Unit-test filename/month continuity rules in `SendMail.Core.Tests`.
+- Unit-test email parsing/validation as pure functions.
+
+Commit:
+```bash
+git add src/SendMail.Core/Validation src/SendMail/Services/ExcelInteropReader.cs src/SendMail/Services/ExcelService.cs src/SendMail/ViewModels/MainViewModel.cs tests/SendMail.Core.Tests
+
+git commit -m "feat: add excel scan and validation"
+```
+
+---
+
+### Task 6: Round Calculation
+
+**Files:**
+- Create: `src/SendMail.Core/Round/RoundCalculator.cs`
+- Tests: `tests/SendMail.Core.Tests/RoundCalculatorTests.cs`
+
+Implement `docs/ROUND_RULES.md` exactly (key: email; continuous months increment; break resets).
+
+---
+
+### Task 7: Template Validation (Tokens/Attachment Only)
+
+**Rules:**
+- Subject must contain `{round}`
+- Tokens in body must exist and match columns (case-insensitive)
+- Attachment <= 10MB
+
+**Files:**
+- Create: `src/SendMail.Core/Template/TokenScanner.cs`
+- Create: `src/SendMail.Core/Template/TemplateValidator.cs`
+- Tests: `tests/SendMail.Core.Tests/TemplateValidatorTests.cs`
+
+Note:
+- Spec says “Jinja2”. Choose a .NET library that supports the Jinja2 syntax we need (loops/ifs, dict access). If the library isn’t truly Jinja2-compatible, that is a spec violation.
+
+---
+
+### Task 8: SMTP Connect/Auth Verification
 
 **Files:**
 - Create: `src/SendMail/Services/SmtpService.cs`
 - Modify: `src/SendMail/ViewModels/MainViewModel.cs`
 
-**Step 1: Write failing test**
-
-Test that `TestSmtp` command fails without config and succeeds with valid mock config.
-
-**Step 2: Run tests to fail**
-
-Run: `dotnet test`
-Expected: FAIL.
-
-**Step 3: Implement SmtpService**
-
-- Connect + authenticate only.
-- No sending in this stage.
-
-**Step 4: Run tests**
-
-Run: `dotnet test`
-Expected: PASS.
-
-**Step 5: Commit**
-
-```bash
-git add src/SendMail/Services/SmtpService.cs src/SendMail/ViewModels/MainViewModel.cs src/SendMail.Tests
-
-git commit -m "feat: add smtp connect/auth verification"
-```
+Only connect + authenticate.
 
 ---
 
-### Task 6: Template validation and test mail sending
+### Task 9: Test Mail Sending (Separate Button)
 
 **Files:**
-- Create: `src/SendMail/Services/TemplateService.cs`
+- Modify: `src/SendMail/Services/SmtpService.cs` (send)
 - Modify: `src/SendMail/ViewModels/MainViewModel.cs`
-- Modify: `src/SendMail/Services/SmtpService.cs`
 
-**Step 1: Write failing test**
-
-- Validate `{round}` in subject.
-- Token presence check.
-- Attachment size check.
-
-**Step 2: Run tests to fail**
-
-Run: `dotnet test`
-Expected: FAIL.
-
-**Step 3: Implement TemplateService**
-
-- Token parsing and matching (case-insensitive).
-- Attachment size validation.
-
-**Step 4: Implement Test Mail**
-
-- Build full message using real first row.
-- Replace TO with test recipient.
-- Use template + attachments.
-
-**Step 5: Run tests**
-
-Run: `dotnet test`
-Expected: PASS.
-
-**Step 6: Commit**
-
-```bash
-git add src/SendMail/Services/TemplateService.cs src/SendMail/Services/SmtpService.cs src/SendMail/ViewModels/MainViewModel.cs src/SendMail.Tests
-
-git commit -m "feat: add template validation and test mail sending"
-```
+Rules:
+- Uses first target data
+- TO replaced with test recipient
+- Same template/attachments/from/reply
+- Does not consume batch
 
 ---
 
-### Task 7: Preview rendering (WebView2)
-
-**Files:**
-- Modify: `src/SendMail/MainWindow.xaml`
-- Modify: `src/SendMail/ViewModels/MainViewModel.cs`
-
-**Step 1: Write failing test**
-
-Not applicable (UI binding).
-
-**Step 2: Implement Preview**
-
-- WebView2 bound to HTML string.
-- `Preview` command updates HTML string.
-
-**Step 3: Manual verification**
-
-Run app and verify manual preview refresh uses selected email.
-
-**Step 4: Commit**
-
-```bash
-git add src/SendMail/MainWindow.xaml src/SendMail/ViewModels/MainViewModel.cs
-
-git commit -m "feat: add preview rendering"
-```
-
----
-
-### Task 8: SendService sequential sending + outputs
+### Task 10: SendService Sequential Send + Output Files
 
 **Files:**
 - Create: `src/SendMail/Services/SendService.cs`
-- Modify: `src/SendMail/ViewModels/MainViewModel.cs`
 - Create: `src/SendMail/Services/OutputService.cs`
 
-**Step 1: Write failing test**
-
-- Ensure sequential send order.
-- Ensure results/failures CSV format.
-
-**Step 2: Run tests to fail**
-
-Run: `dotnet test`
-Expected: FAIL.
-
-**Step 3: Implement SendService**
-
-- Sequential sending only.
-- No retries.
-- Status written to results/failures CSV.
-- Logs for each send.
-
-**Step 4: Run tests**
-
-Run: `dotnet test`
-Expected: PASS.
-
-**Step 5: Commit**
-
-```bash
-git add src/SendMail/Services/SendService.cs src/SendMail/Services/OutputService.cs src/SendMail/ViewModels/MainViewModel.cs src/SendMail.Tests
-
-git commit -m "feat: add sequential send and output csv"
-```
+Rules:
+- Sequential only
+- No retries
+- “Success” means SMTP accepted (no exception)
+- Write `results-<Batch>.csv` and `failures-<Batch>.csv` per `AGENTS.md`
 
 ---
 
-### Task 9: UI enablement + final wiring
+### Task 11: WebView2 Preview (Manual Refresh)
 
 **Files:**
 - Modify: `src/SendMail/MainWindow.xaml`
 - Modify: `src/SendMail/ViewModels/MainViewModel.cs`
 
-**Step 1: Manual verification**
-
-- Validate button enablement ordering.
-- Ensure inputs disabled during send.
-
-**Step 2: Commit**
-
-```bash
-git add src/SendMail/MainWindow.xaml src/SendMail/ViewModels/MainViewModel.cs
-
-git commit -m "feat: wire ui enablement rules"
-```
+Rules:
+- Only refresh on button click
+- Uses selected email from grid
 
 ---
 
-## Execution Handoff
+### Task 12: Final End-to-End Verification (Windows)
 
-Plan complete and saved to `docs/plans/2026-02-06-sendmail-implementation-plan.md`.
-
-Two execution options:
-
-1. **Subagent-Driven (this session)** - I dispatch fresh subagent per task, review between tasks, fast iteration.
-2. **Parallel Session (separate)** - Open new session with executing-plans, batch execution with checkpoints.
-
-Which approach?
+Manual checks:
+- Excel validation errors: EX001/EX002/EX003/EX010
+- Template validation gating (SMTP success required)
+- Test mail button gating (Template success required)
+- Send button gating (all success)
+- Inputs disabled during send (Stop/Pause only)
+- Output CSV and logs created
