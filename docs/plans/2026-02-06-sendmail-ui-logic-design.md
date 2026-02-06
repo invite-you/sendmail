@@ -77,6 +77,7 @@ During sending, all input controls are disabled; only Stop/Pause are enabled.
 
 ### Excel
 - File name pattern: `^(?<date>\d{8}).*\.xlsx$`.
+- Any `.xlsx` that does not match the pattern (or contains an invalid YYYYMMDD) fails validation (**EX004**).
 - One file per YYYYMM; duplicates -> **EX001**.
 - YYYYMM must be continuous; gaps -> **EX002**. Day (DD) ignored.
 - Open all files with Excel Interop; failure -> **EX003**.

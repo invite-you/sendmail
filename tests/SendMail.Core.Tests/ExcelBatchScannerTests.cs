@@ -54,7 +54,7 @@ public class ExcelBatchScannerTests
     }
 
     [Fact]
-    public void NonMatchingFiles_AreIgnored()
+    public void NonMatchingFiles_ReturnsEx004()
     {
         var paths = new[]
         {
@@ -62,11 +62,23 @@ public class ExcelBatchScannerTests
             "/tmp/20250101.xlsx"
         };
 
-        var (result, error) = ExcelBatchScanner.ValidateMonthlyContinuity(paths);
+        var (_, error) = ExcelBatchScanner.ValidateMonthlyContinuity(paths);
 
-        Assert.Null(error);
-        Assert.NotNull(result);
-        Assert.Equal(1, result!.FileCount);
-        Assert.Equal("202501", result.MinMonth.ToString());
+        Assert.NotNull(error);
+        Assert.Equal("EX004", error!.Code);
+    }
+
+    [Fact]
+    public void InvalidDate_ReturnsEx004()
+    {
+        var paths = new[]
+        {
+            "/tmp/20251301.xlsx"
+        };
+
+        var (_, error) = ExcelBatchScanner.ValidateMonthlyContinuity(paths);
+
+        Assert.NotNull(error);
+        Assert.Equal("EX004", error!.Code);
     }
 }

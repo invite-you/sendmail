@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -37,17 +38,25 @@ public static class ExcelBatchScanner
             var match = FileNameRegex.Match(fileName);
             if (!match.Success)
             {
-                // Ignore non-matching files (they are not part of the batch policy).
-                continue;
+                return (null, new ExcelBatchScanError(
+                    "EX004",
+                    $"Invalid Excel filename (pattern mismatch): {fileName}"));
             }
 
             var dateText = match.Groups["date"].Value;
-            var year = int.Parse(dateText.Substring(0, 4));
-            var month = int.Parse(dateText.Substring(4, 2));
-            var day = int.Parse(dateText.Substring(6, 2));
+            if (!DateOnly.TryParseExact(
+                    dateText,
+                    "yyyyMMdd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var date))
+            {
+                return (null, new ExcelBatchScanError(
+                    "EX004",
+                    $"Invalid Excel filename (invalid YYYYMMDD): {fileName}"));
+            }
 
-            var date = new DateOnly(year, month, day);
-            var yearMonth = new YearMonth(year, month);
+            var yearMonth = new YearMonth(date.Year, date.Month);
 
             parsed.Add(new ExcelBatchFile(path, fileName, date, yearMonth));
         }
