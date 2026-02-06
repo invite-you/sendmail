@@ -48,6 +48,7 @@ Top to bottom:
 - Email grid (select one for preview).
 - Summary bar above grid: `선택 월: YYYYMM–YYYYMM, 파일 n개, 최신 파일 1개, 대상자(이메일) n명`.
 - 발송 대상 이메일은 최신 월(YYYYMM Max) 파일의 이메일 컬럼 기준으로 결정한다.
+- 대상자(이메일) 수 및 발송 대상은 RFC 5322 형식 검증을 통과한 이메일(중복 병합) 기준이다.
 
 ### SMTP Group
 - Host/Port/User/Pass/SSL settings (loaded from config; in-form edits are session-only).

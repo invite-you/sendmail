@@ -23,6 +23,11 @@ public static class RecipientCalculator
                 continue;
             }
 
+            if (!EmailValidator.IsValidRfc5322AddrSpec(trimmed))
+            {
+                continue;
+            }
+
             if (seen.Add(trimmed))
             {
                 recipients.Add(trimmed);
@@ -32,4 +37,3 @@ public static class RecipientCalculator
         return recipients;
     }
 }
-
