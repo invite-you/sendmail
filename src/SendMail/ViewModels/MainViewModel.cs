@@ -6,9 +6,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using MimeKit;
 using SendMail.Core.Config;
 using SendMail.Core.Models;
+using SendMail.Core.Round;
 using SendMail.Core.Smtp;
+using SendMail.Core.Template;
 using SendMail.Core.Validation;
 using SendMail.Services;
 
@@ -20,6 +23,8 @@ public partial class MainViewModel : ObservableObject
     private readonly SmtpService smtpService = new();
 
     private IReadOnlyList<string> latestValidRecipients = Array.Empty<string>();
+    private IReadOnlyList<EmailGroup> latestEmailGroups = Array.Empty<EmailGroup>();
+    private IReadOnlyDictionary<string, int> latestRoundsByEmail = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
     public MainViewModel()
     {
@@ -236,14 +241,12 @@ public partial class MainViewModel : ObservableObject
 
     private Task ValidateTemplateAsync()
     {
-        LogInfo("ValidateTemplate(tokens/attachment): not implemented yet.");
-        return Task.CompletedTask;
+        return ValidateTemplateInternalAsync();
     }
 
     private Task SendTestMailAsync()
     {
-        LogInfo("SendTestMail: not implemented yet.");
-        return Task.CompletedTask;
+        return SendTestMailInternalAsync();
     }
 
     private Task RefreshPreviewAsync()
@@ -379,6 +382,7 @@ public partial class MainViewModel : ObservableObject
         var scan = result!;
         var latestFile = scan.Files[^1];
         IReadOnlyList<ExcelInteropReader.CellString> latestCells = Array.Empty<ExcelInteropReader.CellString>();
+        var monthEmailSets = new List<HashSet<string>>();
 
         var invalidTotal = 0;
         const int invalidLogLimit = 50;
@@ -410,8 +414,10 @@ public partial class MainViewModel : ObservableObject
                 latestCells = cells;
             }
 
+            var monthSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var cell in cells)
             {
+                monthSet.Add(cell.Value);
                 if (!EmailValidator.IsValidRfc5322AddrSpec(cell.Value))
                 {
                     invalidTotal++;
@@ -421,6 +427,8 @@ public partial class MainViewModel : ObservableObject
                     }
                 }
             }
+
+            monthEmailSets.Add(monthSet);
         }
 
         if (invalidTotal > 0)
@@ -439,8 +447,62 @@ public partial class MainViewModel : ObservableObject
         latestValidRecipients = RecipientCalculator.FromEmailColumnValues(latestValues);
         ExcelRecipientCountText = latestValidRecipients.Count.ToString();
 
+        try
+        {
+            latestRoundsByEmail = RoundCalculator.CalculateLatestRounds(monthEmailSets);
+        }
+        catch (Exception ex)
+        {
+            LogError($"Failed to calculate rounds: {ex.Message}");
+            Stage.Excel = StageStatus.Fail;
+            return;
+        }
+
+        IReadOnlyList<ExcelRow> latestRows;
+        try
+        {
+            latestRows = await StaThreadRunner.RunAsync(() =>
+                excelReader.ReadRows(latestFile.FullPath, ExcelPassword, ExcelEmailColumn));
+        }
+        catch (ExcelInteropException ex)
+        {
+            LogError($"[{ex.Code}] {ex.Message}");
+            Stage.Excel = StageStatus.Fail;
+            return;
+        }
+        catch (Exception ex)
+        {
+            LogError($"Failed to read latest Excel rows: {latestFile.FileName}: {ex.Message}");
+            Stage.Excel = StageStatus.Fail;
+            return;
+        }
+
+        // Build merged groups in the same order as the recipient list (row order preserved).
+        var groupMap = new Dictionary<string, List<ExcelRow>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in latestRows)
+        {
+            if (!groupMap.TryGetValue(row.Email, out var list))
+            {
+                list = new List<ExcelRow>();
+                groupMap[row.Email] = list;
+            }
+
+            list.Add(row);
+        }
+
+        var groups = new List<EmailGroup>();
+        foreach (var email in latestValidRecipients)
+        {
+            if (groupMap.TryGetValue(email, out var rows))
+            {
+                groups.Add(new EmailGroup(email, rows));
+            }
+        }
+
+        latestEmailGroups = groups;
+
         Stage.Excel = StageStatus.Success;
-        LogInfo($"Excel validated. recipients={ExcelRecipientCountText}");
+        LogInfo($"Excel validated. recipients={ExcelRecipientCountText} groups={latestEmailGroups.Count}");
     }
 
     private void ResetAfterExcelInputsChanged()
@@ -450,7 +512,47 @@ public partial class MainViewModel : ObservableObject
         Stage.Smtp = StageStatus.Pending;
         Stage.Template = StageStatus.Pending;
         Stage.TestMail = StageStatus.Pending;
+
+        latestValidRecipients = Array.Empty<string>();
+        latestEmailGroups = Array.Empty<EmailGroup>();
+        latestRoundsByEmail = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
     }
+
+    private void ResetAfterSmtpInputsChanged()
+    {
+        Stage.Smtp = StageStatus.Pending;
+        Stage.Template = StageStatus.Pending;
+        Stage.TestMail = StageStatus.Pending;
+    }
+
+    private void ResetAfterTemplateInputsChanged()
+    {
+        Stage.Template = StageStatus.Pending;
+        Stage.TestMail = StageStatus.Pending;
+    }
+
+    private void ResetAfterTestRecipientChanged()
+    {
+        Stage.TestMail = StageStatus.Pending;
+    }
+
+    partial void OnExcelFolderPathChanged(string value) => ResetAfterExcelInputsChanged();
+    partial void OnExcelPasswordChanged(string value) => ResetAfterExcelInputsChanged();
+    partial void OnExcelEmailColumnChanged(string value) => ResetAfterExcelInputsChanged();
+
+    partial void OnSmtpHostChanged(string value) => ResetAfterSmtpInputsChanged();
+    partial void OnSmtpPortChanged(int value) => ResetAfterSmtpInputsChanged();
+    partial void OnSmtpSecurityChanged(string value) => ResetAfterSmtpInputsChanged();
+    partial void OnSmtpSenderChanged(string value) => ResetAfterSmtpInputsChanged();
+    partial void OnSmtpPasswordChanged(string value) => ResetAfterSmtpInputsChanged();
+    partial void OnSmtpTimeoutSecondsChanged(int value) => ResetAfterSmtpInputsChanged();
+
+    partial void OnMailSubjectChanged(string value) => ResetAfterTemplateInputsChanged();
+    partial void OnMailBodyPathChanged(string value) => ResetAfterTemplateInputsChanged();
+    partial void OnMailAttachmentsTextChanged(string value) => ResetAfterTemplateInputsChanged();
+    partial void OnMaxAttachmentBytesChanged(long value) => ResetAfterTemplateInputsChanged();
+
+    partial void OnTestRecipientChanged(string value) => ResetAfterTestRecipientChanged();
 
     private async Task TestSmtpInternalAsync()
     {
@@ -478,5 +580,296 @@ public partial class MainViewModel : ObservableObject
             Stage.Smtp = StageStatus.Fail;
             LogError($"SMTP verify failed: {ex.Message}");
         }
+    }
+
+    private async Task SendTestMailInternalAsync()
+    {
+        Stage.TestMail = StageStatus.Pending;
+
+        if (Stage.Excel != StageStatus.Success || Stage.Smtp != StageStatus.Success || Stage.Template != StageStatus.Success)
+        {
+            LogError("Test mail requires Excel+SMTP+Template success.");
+            Stage.TestMail = StageStatus.Fail;
+            return;
+        }
+
+        if (latestEmailGroups.Count == 0)
+        {
+            LogError("No recipients found in latest Excel (cannot send test mail).");
+            Stage.TestMail = StageStatus.Fail;
+            return;
+        }
+
+        if (!EmailValidator.IsValidRfc5322AddrSpec(TestRecipient))
+        {
+            LogError($"Invalid test recipient (RFC 5322): '{TestRecipient}'");
+            Stage.TestMail = StageStatus.Fail;
+            return;
+        }
+
+        if (!EmailValidator.IsValidRfc5322AddrSpec(SmtpSender))
+        {
+            LogError($"Invalid sender (RFC 5322): '{SmtpSender}'");
+            Stage.TestMail = StageStatus.Fail;
+            return;
+        }
+
+        var bodyPath = ResolveExistingFilePath(MailBodyPath);
+        if (bodyPath is null)
+        {
+            LogError($"Body file not found: {MailBodyPath}");
+            Stage.TestMail = StageStatus.Fail;
+            return;
+        }
+
+        string bodyTemplate;
+        try
+        {
+            bodyTemplate = await File.ReadAllTextAsync(bodyPath);
+        }
+        catch (Exception ex)
+        {
+            LogError($"Failed to read body template: {bodyPath}: {ex.Message}");
+            Stage.TestMail = StageStatus.Fail;
+            return;
+        }
+
+        var attachmentPaths = ParseAttachmentPaths(MailAttachmentsText);
+        var resolvedAttachments = new List<string>();
+        foreach (var attachmentPath in attachmentPaths)
+        {
+            var resolved = ResolveExistingFilePath(attachmentPath);
+            if (resolved is null)
+            {
+                LogError($"Attachment not found: {attachmentPath}");
+                Stage.TestMail = StageStatus.Fail;
+                return;
+            }
+
+            var fi = new FileInfo(resolved);
+            if (fi.Length > MaxAttachmentBytes)
+            {
+                LogError($"Attachment too large: {resolved} ({fi.Length} bytes)");
+                Stage.TestMail = StageStatus.Fail;
+                return;
+            }
+
+            resolvedAttachments.Add(resolved);
+        }
+
+        // Use the first real target data; only the TO is replaced.
+        var group = latestEmailGroups[0];
+        var round = latestRoundsByEmail.TryGetValue(group.Email, out var r) ? r : 1;
+
+        RenderedTemplate rendered;
+        try
+        {
+            rendered = MailTemplateRenderer.Render(
+                subjectTemplate: MailSubject,
+                bodyTemplate: bodyTemplate,
+                round: round,
+                group: group);
+        }
+        catch (Exception ex)
+        {
+            LogError($"Template render failed: {ex.Message}");
+            Stage.TestMail = StageStatus.Fail;
+            return;
+        }
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(string.Empty, SmtpSender.Trim()));
+        message.ReplyTo.Add(new MailboxAddress(string.Empty, SmtpSender.Trim()));
+        message.To.Add(new MailboxAddress(string.Empty, TestRecipient.Trim()));
+        message.Subject = rendered.Subject;
+
+        var bodyBuilder = new BodyBuilder { HtmlBody = rendered.HtmlBody };
+        foreach (var resolved in resolvedAttachments)
+        {
+            bodyBuilder.Attachments.Add(resolved);
+        }
+
+        message.Body = bodyBuilder.ToMessageBody();
+
+        try
+        {
+            var securityMode = SmtpSecurityParser.Parse(SmtpSecurity);
+
+            await smtpService.SendAsync(
+                host: SmtpHost,
+                port: SmtpPort,
+                security: securityMode,
+                username: SmtpSender,
+                password: SmtpPassword,
+                timeoutSeconds: SmtpTimeoutSeconds,
+                message: message);
+
+            Stage.TestMail = StageStatus.Success;
+            LogInfo($"Test mail sent (accepted). to={TestRecipient} using data={group.Email} round={round}");
+        }
+        catch (Exception ex)
+        {
+            Stage.TestMail = StageStatus.Fail;
+            LogError($"Test mail send failed: {ex.Message}");
+        }
+    }
+
+    private async Task ValidateTemplateInternalAsync()
+    {
+        Stage.Template = StageStatus.Pending;
+        Stage.TestMail = StageStatus.Pending;
+
+        if (Stage.Excel != StageStatus.Success || Stage.Smtp != StageStatus.Success)
+        {
+            LogError("Template validation requires Excel+SMTP success.");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ExcelFolderPath) || !Directory.Exists(ExcelFolderPath))
+        {
+            LogError("Excel folder path is empty or does not exist.");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(MailBodyPath))
+        {
+            LogError("BodyPath is empty.");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        var resolvedBodyPath = ResolveExistingFilePath(MailBodyPath);
+        if (resolvedBodyPath is null)
+        {
+            LogError($"Body file not found: {MailBodyPath}");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        string bodyTemplate;
+        try
+        {
+            bodyTemplate = await File.ReadAllTextAsync(resolvedBodyPath);
+        }
+        catch (Exception ex)
+        {
+            LogError($"Failed to read body template: {resolvedBodyPath}: {ex.Message}");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        var attachmentPaths = ParseAttachmentPaths(MailAttachmentsText);
+        var attachments = attachmentPaths
+            .Select(p =>
+            {
+                var resolved = ResolveExistingFilePath(p);
+                if (resolved is null)
+                {
+                    return new AttachmentInfo(p, LengthBytes: 0, Exists: false);
+                }
+
+                try
+                {
+                    var fi = new FileInfo(resolved);
+                    return new AttachmentInfo(resolved, fi.Length, Exists: true);
+                }
+                catch
+                {
+                    return new AttachmentInfo(resolved, LengthBytes: 0, Exists: false);
+                }
+            })
+            .ToArray();
+
+        // For token validation we match against the latest file's header columns.
+        var candidates = ExcelBatchScanner.EnumerateCandidateFiles(ExcelFolderPath);
+        var (scan, scanError) = ExcelBatchScanner.ValidateMonthlyContinuity(candidates);
+        if (scanError is not null)
+        {
+            LogError($"[{scanError.Code}] {scanError.Message}");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        var latest = scan!.Files[^1];
+        IReadOnlyList<string> latestColumns;
+
+        try
+        {
+            latestColumns = await StaThreadRunner.RunAsync(() =>
+                excelReader.ReadHeaderRowValues(latest.FullPath, ExcelPassword));
+        }
+        catch (ExcelInteropException ex)
+        {
+            LogError($"[{ex.Code}] {ex.Message}");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+        catch (Exception ex)
+        {
+            LogError($"Failed to read Excel headers: {latest.FileName}: {ex.Message}");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        var error = TemplateValidator.Validate(
+            subject: MailSubject,
+            bodyTemplate: bodyTemplate,
+            availableColumns: latestColumns,
+            attachments: attachments,
+            maxAttachmentBytes: MaxAttachmentBytes);
+
+        if (error is not null)
+        {
+            LogError($"[{error.Code}] {error.Message}");
+            Stage.Template = StageStatus.Fail;
+            return;
+        }
+
+        Stage.Template = StageStatus.Success;
+        LogInfo("Template validated (tokens/attachment).");
+    }
+
+    private static IReadOnlyList<string> ParseAttachmentPaths(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return Array.Empty<string>();
+        }
+
+        return raw.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToArray();
+    }
+
+    private static string? ResolveExistingFilePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (Path.IsPathRooted(path))
+        {
+            return File.Exists(path) ? path : null;
+        }
+
+        var candidates = new[]
+        {
+            Path.GetFullPath(path, Environment.CurrentDirectory),
+            Path.GetFullPath(path, AppContext.BaseDirectory)
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 }
