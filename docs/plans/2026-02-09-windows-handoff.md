@@ -106,7 +106,7 @@ Goal:
 
 Files:
 - UI placeholder: `src/SendMail/MainWindow.xaml` (Preview section)
-- Hook: `src/SendMail/ViewModels/MainViewModel.cs` (`RefreshPreviewInternalAsync` is currently placeholder)
+- Hook: `src/SendMail/ViewModels/MainViewModel.cs` (`RefreshPreviewAsync` is currently placeholder)
 - Renderer: `src/SendMail.Core/Template/MailTemplateRenderer.cs`
 
 ## Skills To Use (Codex Superpowers)
