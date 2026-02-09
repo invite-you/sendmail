@@ -3,7 +3,7 @@
 ## Repo State (2026-02-09)
 
 - Branch: `plan-implementation`
-- HEAD commit: `bad03af` (`docs: add windows handoff and next steps`)
+- Head commit: check with `git log -1 --oneline`
 - Task 10 commit: `5f5b582` (`feat: bulk send with stop/pause and csv/log output`)
 - Status:
   - Task 10 (Bulk Send + CSV/Log output): implemented
@@ -47,7 +47,9 @@ git checkout plan-implementation
 git log -1 --oneline
 ```
 
-Expected: commit starts with `bad03af`.
+Expected:
+- `git log -1` shows a recent `docs:` or `feat:` commit on `plan-implementation`
+- `git log --oneline --max-count 50` includes `5f5b582` (Task 10)
 
 ### 2) Config files
 
