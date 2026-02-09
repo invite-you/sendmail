@@ -3,13 +3,16 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MimeKit;
 using SendMail.Core.Config;
 using SendMail.Core.Models;
+using SendMail.Core.Output;
 using SendMail.Core.Round;
+using SendMail.Core.Sending;
 using SendMail.Core.Smtp;
 using SendMail.Core.Template;
 using SendMail.Core.Validation;
@@ -21,6 +24,7 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly ExcelInteropReader excelReader = new();
     private readonly SmtpService smtpService = new();
+    private CancellationTokenSource? sendCts;
 
     private IReadOnlyList<string> latestValidRecipients = Array.Empty<string>();
     private IReadOnlyList<EmailGroup> latestEmailGroups = Array.Empty<EmailGroup>();
@@ -53,6 +57,9 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private bool isSending;
+
+    [ObservableProperty]
+    private bool isPaused;
 
     [ObservableProperty]
     private string configPath = string.Empty;
@@ -257,23 +264,52 @@ public partial class MainViewModel : ObservableObject
 
     private Task SendAsync()
     {
-        LogInfo("Send: not implemented yet.");
-        return Task.CompletedTask;
+        return SendInternalAsync();
     }
 
     private void Pause()
     {
-        LogInfo("Pause: not implemented yet.");
+        if (!IsSending)
+        {
+            return;
+        }
+
+        IsPaused = !IsPaused;
+        LogInfo(IsPaused ? "Paused." : "Resumed.");
     }
 
     private void Stop()
     {
-        LogInfo("Stop: not implemented yet.");
+        if (!IsSending)
+        {
+            return;
+        }
+
+        LogWarning("Stop requested.");
+        sendCts?.Cancel();
     }
 
-    private void LogInfo(string message) => Logs.Add(new LogEntry(DateTime.Now, LogLevel.Info, message));
-    private void LogWarning(string message) => Logs.Add(new LogEntry(DateTime.Now, LogLevel.Warning, message));
-    private void LogError(string message) => Logs.Add(new LogEntry(DateTime.Now, LogLevel.Error, message));
+    private void LogInfo(string message) => AddLog(new LogEntry(DateTime.Now, LogLevel.Info, message));
+    private void LogWarning(string message) => AddLog(new LogEntry(DateTime.Now, LogLevel.Warning, message));
+    private void LogError(string message) => AddLog(new LogEntry(DateTime.Now, LogLevel.Error, message));
+
+    private void AddLog(LogEntry entry)
+    {
+        Logs.Add(entry);
+        TryAppendLogFile(entry);
+    }
+
+    private void TryAppendLogFile(LogEntry entry)
+    {
+        try
+        {
+            LogFileAppender.Append(LogDir, entry);
+        }
+        catch
+        {
+            // Best-effort file logging; keep UI usable even when disk paths are invalid.
+        }
+    }
 
     partial void OnIsSendingChanged(bool value)
     {
@@ -299,6 +335,133 @@ public partial class MainViewModel : ObservableObject
     private void OnStagePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         NotifyCommandCanExecuteChanged();
+    }
+
+    private async Task SendInternalAsync()
+    {
+        if (!Stage.CanSend)
+        {
+            LogError("Send requires Excel+SMTP+Template+TestMail success.");
+            return;
+        }
+
+        if (latestEmailGroups.Count == 0)
+        {
+            LogError("No recipients found in latest Excel.");
+            return;
+        }
+
+        if (!EmailValidator.IsValidRfc5322AddrSpec(SmtpSender))
+        {
+            LogError($"Invalid sender (RFC 5322): '{SmtpSender}'");
+            return;
+        }
+
+        var bodyPath = ResolveExistingFilePath(MailBodyPath);
+        if (bodyPath is null)
+        {
+            LogError($"Body file not found: {MailBodyPath}");
+            return;
+        }
+
+        string bodyTemplate;
+        try
+        {
+            bodyTemplate = await File.ReadAllTextAsync(bodyPath);
+        }
+        catch (Exception ex)
+        {
+            LogError($"Failed to read body template: {bodyPath}: {ex.Message}");
+            return;
+        }
+
+        var attachmentPaths = ParseAttachmentPaths(MailAttachmentsText);
+        var resolvedAttachments = new List<string>();
+        foreach (var attachmentPath in attachmentPaths)
+        {
+            var resolved = ResolveExistingFilePath(attachmentPath);
+            if (resolved is null)
+            {
+                LogError($"Attachment not found: {attachmentPath}");
+                return;
+            }
+
+            try
+            {
+                var fi = new FileInfo(resolved);
+                if (fi.Length > MaxAttachmentBytes)
+                {
+                    LogError($"Attachment too large: {resolved} ({fi.Length} bytes)");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Attachment stat failed: {resolved}: {ex.Message}");
+                return;
+            }
+
+            resolvedAttachments.Add(resolved);
+        }
+
+        var batchId = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        IsSending = true;
+        IsPaused = false;
+
+        sendCts = new CancellationTokenSource();
+        try
+        {
+            var securityMode = SmtpSecurityParser.Parse(SmtpSecurity);
+
+            LogInfo($"Send started. batch={batchId} recipients={latestEmailGroups.Count}");
+
+            var attempts = await BulkSender.SendAsync(
+                smtpSender: SmtpSender,
+                subjectTemplate: MailSubject,
+                bodyTemplate: bodyTemplate,
+                attachmentPaths: resolvedAttachments,
+                groups: latestEmailGroups,
+                roundsByEmail: latestRoundsByEmail,
+                sendAsync: (message, ct) => smtpService.SendAsync(
+                    host: SmtpHost,
+                    port: SmtpPort,
+                    security: securityMode,
+                    username: SmtpSender,
+                    password: SmtpPassword,
+                    timeoutSeconds: SmtpTimeoutSeconds,
+                    message: message,
+                    cancellationToken: ct),
+                beforeEachSendAsync: WaitWhilePausedAsync,
+                clock: static () => DateTime.Now,
+                cancellationToken: sendCts.Token);
+
+            var (resultsPath, failuresPath) = BatchOutputWriter.Write(OutputDir, batchId, attempts);
+
+            var sent = attempts.Count(a => a.Status == SendAttemptStatus.Sent);
+            var failed = attempts.Count - sent;
+
+            LogInfo($"Send finished. sent={sent} failed={failed}");
+            LogInfo($"Output written. results={resultsPath} failures={failuresPath}");
+        }
+        catch (Exception ex)
+        {
+            LogError($"Send failed: {ex.Message}");
+        }
+        finally
+        {
+            sendCts.Dispose();
+            sendCts = null;
+            IsSending = false;
+            IsPaused = false;
+        }
+    }
+
+    private async Task WaitWhilePausedAsync(CancellationToken cancellationToken)
+    {
+        while (IsPaused)
+        {
+            await Task.Delay(200, cancellationToken);
+        }
     }
 
     private async Task LoadExcelInternalAsync()

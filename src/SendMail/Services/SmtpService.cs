@@ -15,7 +15,8 @@ public sealed class SmtpService
         SmtpSecurityMode security,
         string username,
         string password,
-        int timeoutSeconds)
+        int timeoutSeconds,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(host))
         {
@@ -46,9 +47,9 @@ public sealed class SmtpService
         client.Timeout = checked(timeoutSeconds * 1000);
 
         var options = MapSecurity(security);
-        await client.ConnectAsync(host, port, options).ConfigureAwait(false);
-        await client.AuthenticateAsync(username, password).ConfigureAwait(false);
-        await client.DisconnectAsync(true).ConfigureAwait(false);
+        await client.ConnectAsync(host, port, options, cancellationToken).ConfigureAwait(false);
+        await client.AuthenticateAsync(username, password, cancellationToken).ConfigureAwait(false);
+        await client.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task SendAsync(
@@ -58,7 +59,8 @@ public sealed class SmtpService
         string username,
         string password,
         int timeoutSeconds,
-        MimeMessage message)
+        MimeMessage message,
+        CancellationToken cancellationToken = default)
     {
         if (message is null)
         {
@@ -94,10 +96,10 @@ public sealed class SmtpService
         client.Timeout = checked(timeoutSeconds * 1000);
 
         var options = MapSecurity(security);
-        await client.ConnectAsync(host, port, options).ConfigureAwait(false);
-        await client.AuthenticateAsync(username, password).ConfigureAwait(false);
-        await client.SendAsync(message).ConfigureAwait(false);
-        await client.DisconnectAsync(true).ConfigureAwait(false);
+        await client.ConnectAsync(host, port, options, cancellationToken).ConfigureAwait(false);
+        await client.AuthenticateAsync(username, password, cancellationToken).ConfigureAwait(false);
+        await client.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        await client.DisconnectAsync(true, cancellationToken).ConfigureAwait(false);
     }
 
     private static SecureSocketOptions MapSecurity(SmtpSecurityMode mode) =>

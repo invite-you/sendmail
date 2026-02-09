@@ -33,6 +33,17 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,0" VerticalAlignment="Center">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
                     <TextBlock Text="Config:" FontWeight="Bold" VerticalAlignment="Center" />
                     <TextBox Text="{Binding ConfigPath, UpdateSourceTrigger=PropertyChanged}" Width="360" Margin="6,0,8,0" />
                     <Button Content="Reload" Command="{Binding ReloadConfigCommand}" Margin="0,0,10,0" />
@@ -45,6 +56,16 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="8">
                 <GroupBox Header="Excel">
+                    <GroupBox.Style>
+                        <Style TargetType="GroupBox">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </GroupBox.Style>
                     <StackPanel Margin="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -91,6 +112,16 @@
                 </GroupBox>
 
                 <GroupBox Header="SMTP" Margin="0,8,0,0">
+                    <GroupBox.Style>
+                        <Style TargetType="GroupBox">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </GroupBox.Style>
                     <StackPanel Margin="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -138,6 +169,16 @@
                 </GroupBox>
 
                 <GroupBox Header="Template" Margin="0,8,0,0">
+                    <GroupBox.Style>
+                        <Style TargetType="GroupBox">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </GroupBox.Style>
                     <StackPanel Margin="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -192,10 +233,12 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="OutputDir" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding OutputDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Grid.Row="0" Grid.Column="1" IsReadOnly="{Binding IsSending}"
+                                     Text="{Binding OutputDir, UpdateSourceTrigger=PropertyChanged}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="LogDir" Margin="0,6,0,0" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Text="{Binding LogDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" IsReadOnly="{Binding IsSending}"
+                                     Text="{Binding LogDir, UpdateSourceTrigger=PropertyChanged}" />
                         </Grid>
                     </StackPanel>
                 </GroupBox>
