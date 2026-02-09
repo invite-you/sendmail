@@ -3,7 +3,8 @@
 ## Repo State (2026-02-09)
 
 - Branch: `plan-implementation`
-- Latest commit: `5f5b582` (`feat: bulk send with stop/pause and csv/log output`)
+- HEAD commit: `bad03af` (`docs: add windows handoff and next steps`)
+- Task 10 commit: `5f5b582` (`feat: bulk send with stop/pause and csv/log output`)
 - Status:
   - Task 10 (Bulk Send + CSV/Log output): implemented
   - Task 11 (WebView2 Preview): NOT implemented (placeholder)
@@ -46,7 +47,7 @@ git checkout plan-implementation
 git log -1 --oneline
 ```
 
-Expected: commit starts with `5f5b582`.
+Expected: commit starts with `bad03af`.
 
 ### 2) Config files
 
@@ -122,4 +123,3 @@ If this branch has new commits locally, push from Windows:
 ```powershell
 git push origin plan-implementation
 ```
-
