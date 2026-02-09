@@ -1,0 +1,264 @@
+<Window x:Class="SendMail.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SendMail" Height="700" Width="1100">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="2*" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="260" />
+        </Grid.RowDefinitions>
+
+        <!-- Stage status bar -->
+        <Border Grid.Row="0" Background="#EEEEEE" Padding="8">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal">
+                    <TextBlock Text="엑셀:" FontWeight="Bold" />
+                    <TextBlock Text="{Binding Stage.Excel}" Margin="6,0,18,0" />
+
+                    <TextBlock Text="SMTP:" FontWeight="Bold" />
+                    <TextBlock Text="{Binding Stage.Smtp}" Margin="6,0,18,0" />
+
+                    <TextBlock Text="템플릿:" FontWeight="Bold" />
+                    <TextBlock Text="{Binding Stage.Template}" Margin="6,0,18,0" />
+
+                    <TextBlock Text="테스트메일:" FontWeight="Bold" />
+                    <TextBlock Text="{Binding Stage.TestMail}" Margin="6,0,18,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,0" VerticalAlignment="Center">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock Text="Config:" FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBox Text="{Binding ConfigPath, UpdateSourceTrigger=PropertyChanged}" Width="360" Margin="6,0,8,0" />
+                    <Button Content="Reload" Command="{Binding ReloadConfigCommand}" Margin="0,0,10,0" />
+                    <TextBlock Text="{Binding LoadedConfigPath}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Input forms -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="8">
+                <GroupBox Header="Excel">
+                    <GroupBox.Style>
+                        <Style TargetType="GroupBox">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </GroupBox.Style>
+                    <StackPanel Margin="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="폴더" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ExcelFolderPath, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="비밀번호" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Text="{Binding ExcelPassword, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="이메일 컬럼" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" Text="{Binding ExcelEmailColumn, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="엑셀 로드" Command="{Binding LoadExcelCommand}" Margin="0,0,8,0" />
+                            <Button Content="엑셀 검증" Command="{Binding ValidateExcelCommand}" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <TextBlock Text="선택 월:" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ExcelMonthRangeText}" Margin="6,0,18,0" />
+
+                            <TextBlock Text="대상 파일:" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ExcelTargetFileCount}" Margin="6,0,18,0" />
+
+                            <TextBlock Text="최신:" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ExcelLatestFileName}" Margin="6,0,18,0" />
+
+                            <TextBlock Text="대상자(이메일):" FontWeight="Bold" />
+                            <TextBlock Text="{Binding ExcelRecipientCountText}" Margin="6,0,0,0" />
+                        </StackPanel>
+
+                        <ListBox ItemsSource="{Binding ExcelTargetFiles}" Height="90" Margin="0,8,0,0" />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="SMTP" Margin="0,8,0,0">
+                    <GroupBox.Style>
+                        <Style TargetType="GroupBox">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </GroupBox.Style>
+                    <StackPanel Margin="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Host" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding SmtpHost, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Text="{Binding SmtpPort, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Security" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"
+                                      SelectedValuePath="Content"
+                                      SelectedValue="{Binding SmtpSecurity, UpdateSourceTrigger=PropertyChanged}">
+                                <ComboBoxItem Content="None" />
+                                <ComboBoxItem Content="Auto" />
+                                <ComboBoxItem Content="SslOnConnect" />
+                                <ComboBoxItem Content="StartTls" />
+                                <ComboBoxItem Content="StartTlsWhenAvailable" />
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Sender" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Margin="0,6,0,0" Text="{Binding SmtpSender, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Password" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Margin="0,6,0,0" Text="{Binding SmtpPassword, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Timeout (sec)" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="5" Grid.Column="1" Margin="0,6,0,0" Text="{Binding SmtpTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+
+                        <Button Content="SMTP 연결 확인" Command="{Binding TestSmtpCommand}" Margin="0,10,0,0" />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Template" Margin="0,8,0,0">
+                    <GroupBox.Style>
+                        <Style TargetType="GroupBox">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSending}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </GroupBox.Style>
+                    <StackPanel Margin="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Subject" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MailSubject, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="BodyPath" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Text="{Binding MailBodyPath, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Attachments" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" Height="60" AcceptsReturn="True"
+                                     Text="{Binding MailAttachmentsText, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Test Recipient" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Margin="0,6,0,0" Text="{Binding TestRecipient, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="템플릿 검증" Command="{Binding ValidateTemplateCommand}" Margin="0,0,8,0" />
+                            <Button Content="테스트 메일 발송" Command="{Binding SendTestMailCommand}" Margin="0,0,8,0" />
+                            <Button Content="프리뷰 갱신" Command="{Binding RefreshPreviewCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Send" Margin="0,8,0,0">
+                    <StackPanel Margin="10">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="발송" Command="{Binding SendCommand}" Margin="0,0,8,0" />
+                            <Button Content="일시정지" Command="{Binding PauseCommand}" Margin="0,0,8,0" />
+                            <Button Content="중지" Command="{Binding StopCommand}" />
+                        </StackPanel>
+
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="OutputDir" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" IsReadOnly="{Binding IsSending}"
+                                     Text="{Binding OutputDir, UpdateSourceTrigger=PropertyChanged}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="LogDir" Margin="0,6,0,0" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" IsReadOnly="{Binding IsSending}"
+                                     Text="{Binding LogDir, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Preview -->
+        <GroupBox Grid.Row="2" Header="Preview" Margin="8,0,8,8">
+            <TextBlock Text="WebView2 프리뷰는 다음 단계에서 연결됩니다." Margin="10" />
+        </GroupBox>
+
+        <!-- Logs -->
+        <GroupBox Grid.Row="3" Header="Logs" Margin="8,0,8,8">
+            <DataGrid ItemsSource="{Binding Logs}" AutoGenerateColumns="False" IsReadOnly="True">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="200" />
+                    <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="100" />
+                    <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+    </Grid>
+</Window>

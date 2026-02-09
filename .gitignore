@@ -1,0 +1,7 @@
+.worktrees
+
+# .NET build artifacts
+**/bin/
+**/obj/
+.vs/
+TestResults/
